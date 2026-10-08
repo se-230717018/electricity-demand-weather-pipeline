@@ -81,10 +81,68 @@ def save_raw(source: str, run_ts: str, content: bytes, suffix: str = "", ext: st
     return path
 
 
+OPEN_METEO_URL = "https://archive-api.open-meteo.com/v1/archive"
+
+
+def parse_locations(raw: str) -> list[tuple[str, str, str]]:
+    """'NYIS:40.71:-74.01,ERCO:...' -> [('NYIS', '40.71', '-74.01'), ...]"""
+    locations = []
+    for item in raw.split(","):
+        parts = item.strip().split(":")
+        if len(parts) != 3:
+            sys.exit(f"ERROR: bad entry in OPENMETEO_LOCATIONS: '{item}' (expected CODE:LAT:LON)")
+        locations.append((parts[0], parts[1], parts[2]))
+    return locations
+
+
+def fetch_open_meteo(run_ts: str) -> dict:
+    """One request per representative location; each response is saved unmodified."""
+    start = get_env("START_DATE")
+    end = get_env("END_DATE")
+    hourly = get_env("OPENMETEO_HOURLY")
+    files, records, failures = 0, 0, []
+
+    for code, lat, lon in parse_locations(get_env("OPENMETEO_LOCATIONS")):
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "start_date": start,
+            "end_date": end,
+            "hourly": hourly,
+            "timezone": "GMT",  # UTC, so hours line up with EIA
+        }
+        try:
+            response = http_get(OPEN_METEO_URL, params)
+            body = response.json()  # also checks that we really received JSON
+            times = body.get("hourly", {}).get("time", [])
+            if not times:
+                raise FetchError("empty or unexpected response (no hourly data)")
+        except (FetchError, ValueError) as exc:
+            failures.append(f"{code}: {exc}")
+            print(f"  Open-Meteo {code}: FAILED - {exc}")
+            continue
+
+        path = save_raw("open_meteo", run_ts, response.content, suffix=f"_{code}")
+        files += 1
+        records += len(times)
+        print(f"  Open-Meteo {code}: {len(times)} hourly records -> {path.relative_to(RAW_DIR.parent.parent)}")
+
+    return {"source": "Open-Meteo", "files": files, "records": records, "failures": failures}
+
+
 def main() -> None:
     run_ts = utc_timestamp()
     print(f"Ingestion run started at {run_ts}")
-    # Sources are added in the next steps (EIA, Open-Meteo).
+    results = [fetch_open_meteo(run_ts)]
+    print("\nRun summary")
+    for r in results:
+        status = "OK" if not r["failures"] else f"{len(r['failures'])} FAILED"
+        print(f"  {r['source']}: {r['files']} files, {r['records']} records - {status}")
+
+
+
+
+
 
 
 if __name__ == "__main__":
