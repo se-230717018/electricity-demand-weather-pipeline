@@ -130,10 +130,64 @@ def fetch_open_meteo(run_ts: str) -> dict:
     return {"source": "Open-Meteo", "files": files, "records": records, "failures": failures}
 
 
+EIA_URL = "https://api.eia.gov/v2/electricity/rto/region-data/data/"
+EIA_PAGE_SIZE = 5000  # EIA's maximum rows per request
+
+
+def fetch_eia(run_ts: str) -> dict:
+    """All pages of hourly demand (D) and day-ahead forecast (DF), one region at a time."""
+    api_key = get_env("EIA_API_KEY")
+    start = get_env("START_DATE") + "T00"
+    end = get_env("END_DATE") + "T23"
+    respondents = [r.strip() for r in get_env("EIA_RESPONDENTS").split(",")]
+    files, records, failures = 0, 0, []
+
+    for resp in respondents:
+        offset, page, total = 0, 1, None
+        try:
+            while total is None or offset < total:
+                params = {
+                    "api_key": api_key,
+                    "frequency": "hourly",
+                    "data[0]": "value",
+                    "facets[respondent][]": resp,
+                    "facets[type][]": ["D", "DF"],
+                    "start": start,
+                    "end": end,
+                    "sort[0][column]": "period",
+                    "sort[0][direction]": "asc",
+                    "sort[1][column]": "type",
+                    "sort[1][direction]": "asc",
+                    "offset": offset,
+                    "length": EIA_PAGE_SIZE,
+                }
+                response = http_get(EIA_URL, params)
+                body = response.json()
+                rows = body.get("response", {}).get("data")
+                if total is None:
+                    total = int(body.get("response", {}).get("total", 0))
+                    if total == 0:
+                        raise FetchError("EIA reports 0 records for this query")
+                if not rows:
+                    raise FetchError(f"empty page at offset {offset} (expected {total} records)")
+
+                save_raw("eia", run_ts, response.content, suffix=f"_{resp}_page{page:03d}")
+                files += 1
+                records += len(rows)
+                offset += len(rows)
+                page += 1
+            print(f"  EIA {resp}: {offset} records in {page - 1} pages")
+        except (FetchError, ValueError) as exc:
+            failures.append(f"{resp}: {exc}")
+            print(f"  EIA {resp}: FAILED after {page - 1} pages - {exc}")
+
+    return {"source": "EIA", "files": files, "records": records, "failures": failures}
+
+
 def main() -> None:
     run_ts = utc_timestamp()
     print(f"Ingestion run started at {run_ts}")
-    results = [fetch_open_meteo(run_ts)]
+    results = [fetch_eia(run_ts), fetch_open_meteo(run_ts)]
     print("\nRun summary")
     for r in results:
         status = "OK" if not r["failures"] else f"{len(r['failures'])} FAILED"
