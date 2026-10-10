@@ -188,15 +188,14 @@ def main() -> None:
     run_ts = utc_timestamp()
     print(f"Ingestion run started at {run_ts}")
     results = [fetch_eia(run_ts), fetch_open_meteo(run_ts)]
+
     print("\nRun summary")
     for r in results:
         status = "OK" if not r["failures"] else f"{len(r['failures'])} FAILED"
         print(f"  {r['source']}: {r['files']} files, {r['records']} records - {status}")
 
-
-
-
-
+    if any(r["failures"] for r in results):
+        sys.exit(1)
 
 
 if __name__ == "__main__":
