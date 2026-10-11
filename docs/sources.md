@@ -32,3 +32,33 @@ known_issues: see list below
 - **Repeated descriptive fields:** `respondent-name` and `type-name` repeat on every row; to be normalised into lookup tables in M2.
 - **API key in raw responses:** Checked on 2026-10-10: raw files do not contain the API key. Either way, raw EIA files are never committed (data/raw/ is git-ignored).
 - **Raw file layout:** one file per page, `data/raw/eia/<UTC timestamp>_<REGION>_pageNNN.json`.
+
+---
+
+## 2. Open-Meteo — Hourly historical weather
+
+```
+source_name: Open-Meteo Historical Weather API — hourly weather at one representative city per region
+provider: Open-Meteo (open-meteo.com)
+url: https://open-meteo.com/en/docs/historical-weather-api (endpoint: https://archive-api.open-meteo.com/v1/archive)
+access_method: REST API, JSON; no API key required (free for non-commercial use)
+licence: CC BY 4.0
+terms_notes: free for non-commercial use within Open-Meteo's fair-use request limits. Redistribution is allowed under CC BY 4.0 with attribution ("Weather data by Open-Meteo.com", linking to https://open-meteo.com/). Attribution is included in our README.
+update_cadence: daily; the archive lags the present by a few days
+coverage: historical hourly data going back decades, global. Our pipeline retrieves three locations — New York (NYIS, 40.71, -74.01), Houston (ERCO, 29.76, -95.37), Los Angeles (CISO, 34.05, -118.24) — for START_DATE to END_DATE in .env (currently 2019-01-01 to 2026-09-30), in UTC. Variables: temperature_2m (°C), relative_humidity_2m (%), precipitation (mm).
+record_meaning: one entry = one hour at one location; delivered as parallel arrays (time[i] belongs with temperature_2m[i], relative_humidity_2m[i], precipitation[i])
+join_key: location code + time (UTC hour) (joins to: EIA demand on respondent + period)
+first_retrieved: 2026-10-08T09:39:27Z
+known_issues: see list below
+```
+
+**Known issues**
+
+- **Column-oriented format:** data arrives as parallel arrays, not rows. Saved unmodified; to be reshaped into rows in M3.
+- **Grid snapping:** the returned latitude/longitude differ slightly from the requested ones, because Open-Meteo answers with the centre of the model grid cell containing the point.
+- **Time zone:** results depend on the `timezone` parameter (we saw a 4-hour shift between `America/New_York` and `GMT` in M0). The script always requests `timezone=GMT` so hours align with EIA's UTC periods.
+- **Archive lag:** the most recent days can be missing or `null`, so END_DATE is set a few days in the past.
+- **Timestamp format:** `time` is `YYYY-MM-DDTHH:MM`, unlike EIA's `YYYY-MM-DDTHH`.
+- **One city per region:** each balancing authority is represented by a single city. This is a simplification: real grid regions span many climates (especially ERCO and CISO).
+- **Model data, not station measurements:** values come from Open-Meteo's historical weather models, not from a physical weather station at that exact point.
+- **Raw file layout:** one file per location per run, `data/raw/open_meteo/<UTC timestamp>_<REGION>.json`.
