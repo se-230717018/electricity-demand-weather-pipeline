@@ -26,7 +26,7 @@ known_issues: see list below
 
 - **Row limit and pagination:** the API returns at most 5,000 rows per request and adds an "incomplete return" warning when there are more. The script pages with `offset`/`length` until `response.total` is reached (~28 pages per region), using a fixed sort order (period, type) so pages stay stable.
 - **Numbers delivered as text:** `value` and `response.total` arrive as strings. Left untouched in raw files; to be converted in M3.
-- **Missing forecast hours:** the DF series has roughly 100 fewer hours than D (e.g. NYIS: 67,833 D vs 67,733 DF in our M0 check). Must be handled before benchmarking our forecast against DF.
+- **Missing forecast hours:** a complete pull would have 2 series × 67,920 hours = 135,840 records per region, but our full run on 2026-10-10 returned NYIS 135,743 (97 missing), ERCO 135,719 (121 missing) and CISO 135,718 (122 missing). This is consistent with our M0 check that the DF series has roughly 100 fewer hours than D (e.g. NYIS: 67,833 D vs 67,733 DF). Whether all gaps are in DF will be confirmed in M3; they must be handled before benchmarking our forecast against DF.
 - **Timestamp format:** `period` is `YYYY-MM-DDTHH` in UTC, which differs from Open-Meteo's `YYYY-MM-DDTHH:MM`. Needs a common type before joining.
 - **Unsorted by default:** without an explicit sort, records are not returned in chronological order.
 - **Repeated descriptive fields:** `respondent-name` and `type-name` repeat on every row; to be normalised into lookup tables in M2.
