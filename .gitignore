@@ -5,6 +5,9 @@
 data/raw/*
 !data/raw/.gitkeep
 
+# Database - derived from raw data, rebuilt by src/load.py
+data/*.db
+
 # Python
 __pycache__/
 *.pyc
