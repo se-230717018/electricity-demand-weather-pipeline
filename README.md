@@ -154,3 +154,48 @@ Tested on one ingestion run (3 files, 203,760 hourly rows, 67,920 per location):
 | Location codes without an EIA region | none — NYIS, ERCO and CISO all match |
 
 Across two runs the same 203,760 (location, hour) pairs appear twice, as expected; the latest-wins upsert keeps one.
+
+### Keys
+
+| Table | Key | Why it holds |
+|---|---|---|
+| `region` | surrogate `region_key`; natural key `respondent` (UNIQUE) | Key test: every respondent has exactly one `respondent-name` |
+| `series_type` | surrogate `type_key`; natural key `type_code` (UNIQUE) | Key test: every type (`D`, `DF`) has exactly one `type-name` |
+| `demand` | `(region_key, type_key, period_utc)` | Key test: 0 duplicate `(respondent, type, period)` in 407,180 raw records |
+| `weather` | `(location_key, observed_at)` | See the Open-Meteo key test findings above |
+
+Surrogate keys are integers assigned by SQLite, so joins stay short and do not depend on source codes. Entities and events are loaded with `INSERT ... ON CONFLICT DO UPDATE ... WHERE excluded.retrieved_at >= <table>.retrieved_at`: the newest file wins, and existing surrogate keys never change (no `INSERT OR REPLACE`). Loading the same files twice gives the same row counts.
+
+### Missing values
+
+- **EIA `value` empty or not a number** means *not reported*, not zero. It is stored as `NULL` and counted as `values_cleaned` in the run summary. In our run: **23 of 407,180** values (CISO demand 22, NYIS demand 1; none in the day-ahead forecast).
+- **EIA record with a missing `respondent`, `type` or an unparseable `period`** cannot be keyed, so it goes to `quarantine` with a reason instead of being dropped silently. In our run: 0.
+- **A file that cannot be read** (broken JSON, no `response.data`) stops the whole load and nothing is written (atomic load).
+- Open-Meteo `null` values are described under *Known issues – Open-Meteo*.
+
+### Key test findings – EIA (`src/key_tests_eia.py`)
+
+One ingestion run (`20261010T154440Z`), 84 files:
+
+| Test | Result |
+|---|---|
+| Records | 407,180 |
+| Records with a missing key field | 0 |
+| Duplicate `(respondent, type, period)` | 0 |
+| Respondents with more than one name | 0 |
+| Types with more than one name | 0 |
+| Empty or non-numeric `value` | 23 (CISO `D` 22, NYIS `D` 1) |
+
+## Analytical query
+
+`sql/queries/demand_by_temperature.sql` answers: *how does electricity demand change with outdoor temperature in each region?*
+
+Grain of the result: one row = one region × one 5 °C temperature band. Only actual demand (`D`) is used. Each demand hour is joined to its region's weather point at the same UTC hour; hours where demand or temperature is `NULL` are left out, and `hours` shows how many hours each average rests on.
+
+Run it:
+
+```bash
+sqlite3 -header -column data/grid.db < sql/queries/demand_by_temperature.sql
+```
+
+Output: *(added after the full load)*
