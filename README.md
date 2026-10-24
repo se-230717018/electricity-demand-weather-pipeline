@@ -107,3 +107,50 @@ M1 — ingestion complete
 | Esma Gül Baş | [se-230717042](https://github.com/se-230717042) |
 | İrem Çakmak | [se-230717018](https://github.com/se-230717018) |
 | Tuba Arpaçay | [se-230717038](https://github.com/se-230717038) |
+
+## Decisions (M2)
+
+### Unknown references
+
+Every weather location must belong to a known grid region (`location.region_key` is a foreign key to `region`).
+A location whose code (from the raw file name, e.g. `NYIS`) has no matching `region.respondent` is **not loaded and
+not silently dropped**: it is written to the `quarantine` table with `reason = 'unknown region'`, the source file,
+a short reference and the raw record. The same rule applies to weather rows that belong to such a location.
+Quarantined records are counted in the load summary, so nothing disappears without a trace.
+
+### Change over time
+
+Every ingestion run re-downloads the full period, so the same (location, hour) can arrive in several raw files.
+We treat this as **type 1 change: the latest retrieval wins**. Rows are upserted with
+`ON CONFLICT ... DO UPDATE ... WHERE excluded.retrieved_at >= weather.retrieved_at`, so a newer file overwrites
+an older value and an older file never overwrites a newer one. The database keeps only the current value; the full
+history remains in the timestamped raw files under `data/raw/`, which are never overwritten.
+
+### Known issues — Open-Meteo
+
+- **Parallel arrays:** the API returns `time`, `temperature_2m`, `relative_humidity_2m` and `precipitation` as
+  separate arrays. The loader zips them by index into one row per hour.
+- **Timestamp format:** Open-Meteo uses `YYYY-MM-DDTHH:MM`, EIA uses `YYYY-MM-DDTHH`. Both are normalised to
+  `YYYY-MM-DDTHH:MMZ` (UTC) so that `weather.observed_at` and `demand.period_utc` can be joined directly.
+- **Time zone:** all files are requested with `timezone=GMT`. The loader checks `utc_offset_seconds`; a file that is
+  not in UTC is not loaded as-is.
+- **Grid snapping:** the stored latitude/longitude are the ones Open-Meteo returned (centre of the model grid cell),
+  not the ones we requested, e.g. NYIS requested 40.71, -74.01 → returned 40.738, -74.043.
+- **One city per region:** each balancing authority is represented by a single city. Real grid regions span several
+  climates (especially ERCO and CISO), so the weather is an approximation of the region's weather.
+- **Model data:** values come from Open-Meteo's historical weather models, not from physical weather stations.
+- **Missing values:** a `null` in Open-Meteo means the hour is not yet in the archive (end-of-period lag). It is
+  stored as `NULL`, never as 0, and counted in the load summary.
+
+### Key test findings — Open-Meteo (`src/key_tests_weather.py`)
+
+Tested on one ingestion run (3 files, 203,760 hourly rows, 67,920 per location):
+
+| Test | Result |
+|---|---|
+| Duplicate (location, time) within one run | 0 — the natural key holds |
+| Files with `utc_offset_seconds` ≠ 0 | 0 — all files are UTC |
+| Null values (temperature, humidity, precipitation) | 0 — END_DATE is set a few days back, so the archive lag did not affect our period |
+| Location codes without an EIA region | none — NYIS, ERCO and CISO all match |
+
+Across two runs the same 203,760 (location, hour) pairs appear twice, as expected; the latest-wins upsert keeps one.
