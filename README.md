@@ -198,4 +198,46 @@ Run it:
 sqlite3 -header -column data/grid.db < sql/queries/demand_by_temperature.sql
 ```
 
-Output: *(added after the full load)*
+Output (full load, 2026-10-10 run):
+
+| respondent | band (°C) | hours | avg demand (MWh) | min | max |
+|---|---|---:|---:|---:|---:|
+| CISO | 0–5 | 451 | 23,000 | 16,725 | 29,071 |
+| CISO | 5–10 | 5,573 | 22,695 | 13,519 | 31,226 |
+| CISO | 10–15 | 17,082 | 22,939 | 91 | 30,636 |
+| CISO | 15–20 | 21,593 | 24,531 | 14 | 43,002 |
+| CISO | 20–25 | 12,872 | 27,069 | 12,224 | 45,116 |
+| CISO | 25–30 | 6,862 | 29,143 | 12,193 | 50,378 |
+| CISO | 30–35 | 2,980 | 31,905 | 11,819 | 51,104 |
+| CISO | 35–40 | 435 | 35,483 | 21,829 | 50,609 |
+| CISO | 40–45 | 47 | 39,686 | 31,492 | 46,643 |
+| CISO | 45–50 | 1 | 40,700 | 40,700 | 40,700 |
+| ERCO | -15 – -10 | 4 | 46,086 | 45,747 | 46,555 |
+| ERCO | -10 – -5 | 67 | 62,405 | 43,776 | 78,155 |
+| ERCO | -5–0 | 295 | 62,507 | 42,938 | 80,150 |
+| ERCO | 0–5 | 1,518 | 53,233 | 36,083 | 76,612 |
+| ERCO | 5–10 | 4,435 | 45,617 | 27,903 | 76,186 |
+| ERCO | 10–15 | 6,989 | 41,668 | 27,670 | 62,440 |
+| ERCO | 15–20 | 10,677 | 40,324 | 27,449 | 63,368 |
+| ERCO | 20–25 | 17,986 | 44,652 | 29,221 | 78,210 |
+| ERCO | 25–30 | 18,520 | 55,765 | 33,055 | 86,050 |
+| ERCO | 30–35 | 6,552 | 68,503 | 43,840 | 91,075 |
+| ERCO | 35–40 | 868 | 77,625 | 56,703 | 90,741 |
+| ERCO | 40–45 | 8 | 80,872 | 77,781 | 84,242 |
+| NYIS | -20 – -15 | 66 | 20,277 | 17,094 | 24,105 |
+| NYIS | -15 – -10 | 417 | 20,334 | 16,021 | 24,728 |
+| NYIS | -10 – -5 | 1,448 | 18,915 | 0 | 24,206 |
+| NYIS | -5–0 | 5,780 | 17,916 | 0 | 23,253 |
+| NYIS | 0–5 | 9,714 | 17,090 | 12,110 | 22,741 |
+| NYIS | 5–10 | 10,185 | 15,851 | 0 | 21,504 |
+| NYIS | 10–15 | 9,698 | 14,980 | 10,731 | 20,586 |
+| NYIS | 15–20 | 10,457 | 15,472 | 0 | 22,240 |
+| NYIS | 20–25 | 12,082 | 18,222 | 10,779 | 28,287 |
+| NYIS | 25–30 | 6,385 | 21,538 | 11,073 | 30,339 |
+| NYIS | 30–35 | 1,545 | 24,608 | 12,858 | 30,919 |
+| NYIS | 35–40 | 134 | 27,840 | 21,365 | 31,857 |
+| NYIS | 40–45 | 7 | 28,321 | 27,641 | 29,255 |
+
+**Reading it:** ERCO and NYIS show a U shape: demand is lowest around 10–20 °C and rises in both cold (heating) and hot (cooling) hours. CISO rises steadily with temperature; it has few cold hours, so cooling dominates. Bands with very few hours (e.g. CISO 45–50 °C, 1 hour) should not be over-interpreted.
+
+**Known issue (EIA):** some hours report demand of 0 or near 0 MWh (NYIS min 0, CISO min 14 and 91). These are numeric values, so they are loaded as reported, not turned into NULL; they look like reporting errors and pull a band's minimum down, while the averages, built on thousands of hours, are barely affected.
