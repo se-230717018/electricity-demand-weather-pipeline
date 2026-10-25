@@ -78,27 +78,39 @@ files named with a UTC timestamp, so earlier raw files are never overwritten.
 
 ```
 .
-├── README.md          ← this file
-├── .gitignore         ← keeps .env, raw data and local environments out of Git
-├── .env.example       ← template of required environment variables (no real values)
-├── requirements.txt   ← Python dependencies
+├── README.md            ← this file
+├── .gitignore           ← keeps .env, raw data, the database and local environments out of Git
+├── .env.example         ← template of required environment variables (no real values)
+├── requirements.txt     ← Python dependencies
 ├── data/
-│   └── raw/           ← landed data, exactly as received (not committed, see below)
-│       ├── eia/         <UTC timestamp>_<REGION>_pageNNN.json
-│       └── open_meteo/  <UTC timestamp>_<REGION>.json
+│   ├── raw/             ← landed data, exactly as received (not committed, see below)
+│   │   ├── eia/           <UTC timestamp>_<REGION>_pageNNN.json
+│   │   └── open_meteo/    <UTC timestamp>_<REGION>.json
+│   └── grid.db          ← SQLite database built by src/load.py (not committed)
+├── sql/
+│   ├── schema.sql       ← every table, STRICT, safe to run more than once
+│   └── queries/
+│       └── demand_by_temperature.sql  ← analytical query
 ├── src/
-│   └── ingest.py      ← ingestion script: retries, timeouts, pagination, raw landing, run summary
+│   ├── ingest.py        ← M1: API → data/raw/ (retries, timeouts, pagination, run summary)
+│   ├── db.py            ← connect() (foreign keys ON) and shared conversion helpers
+│   ├── load.py          ← M2: data/raw/ → data/grid.db in one transaction, with run summary
+│   ├── load_eia.py      ← EIA files → region, series_type, demand
+│   ├── load_weather.py  ← Open-Meteo files → location, weather (and quarantine)
+│   ├── checks.py        ← six PASS/FAIL checks on a temporary copy of the database
+│   ├── key_tests_eia.py      ← key tests on raw EIA files
+│   └── key_tests_weather.py  ← key tests on raw Open-Meteo files
 └── docs/
-    └── sources.md     ← data source cards
+    └── sources.md       ← data source cards
 ```
 
 **Why raw data is not in the repository:** `data/raw/` is git-ignored. Raw files grow with every run,
-and raw EIA responses are tied to a personal API key. Anyone with their own key can regenerate the
+and EIA data can only be retrieved with a personal API key. Anyone with their own key can regenerate the
 data by following the steps above.
 
 ## Status
 
-M1 — ingestion complete
+M2 — schema and load complete
 
 ## Team
 
@@ -107,6 +119,114 @@ M1 — ingestion complete
 | Esma Gül Baş | [se-230717042](https://github.com/se-230717042) |
 | İrem Çakmak | [se-230717018](https://github.com/se-230717018) |
 | Tuba Arpaçay | [se-230717038](https://github.com/se-230717038) |
+
+## Data Model (M2)
+
+The raw files are loaded into a SQLite database, `data/grid.db`, defined in [`sql/schema.sql`](sql/schema.sql).
+Every table is `STRICT`, every relationship is a declared foreign key, and every table keeps `retrieved_at` and
+`source_file`: the landed file each row came from. Timestamps are stored as text in ISO 8601 UTC
+(`2019-01-01T00:00Z`); a `CHECK` constraint rejects any other format in the event tables.
+
+### ER diagram
+
+```mermaid
+erDiagram
+    REGION ||--o{ DEMAND : "has hourly values"
+    SERIES_TYPE ||--o{ DEMAND : "classifies"
+    REGION ||--|{ LOCATION : "is represented by"
+    LOCATION ||--o{ WEATHER : "records"
+
+    REGION {
+        INTEGER region_key PK
+        TEXT respondent UK
+        TEXT respondent_name
+        TEXT retrieved_at
+        TEXT source_file
+    }
+    SERIES_TYPE {
+        INTEGER type_key PK
+        TEXT type_code UK
+        TEXT type_name
+        TEXT retrieved_at
+        TEXT source_file
+    }
+    LOCATION {
+        INTEGER location_key PK
+        TEXT location_code UK
+        INTEGER region_key FK
+        REAL latitude
+        REAL longitude
+        REAL elevation_m
+        TEXT retrieved_at
+        TEXT source_file
+    }
+    DEMAND {
+        INTEGER region_key PK, FK
+        INTEGER type_key PK, FK
+        TEXT period_utc PK
+        REAL value_mwh
+        TEXT retrieved_at
+        TEXT source_file
+    }
+    WEATHER {
+        INTEGER location_key PK, FK
+        TEXT observed_at PK
+        REAL temperature_c
+        REAL relative_humidity_pct
+        REAL precipitation_mm
+        TEXT retrieved_at
+        TEXT source_file
+    }
+    QUARANTINE {
+        INTEGER quarantine_id PK
+        TEXT source
+        TEXT source_file
+        TEXT record_ref
+        TEXT reason
+        TEXT raw_record
+        TEXT retrieved_at
+    }
+```
+
+### Grain of every table
+
+| Table | Kind | One row means… |
+|---|---|---|
+| `region` | entity | one EIA balancing authority (grid region), e.g. NYIS |
+| `series_type` | entity | one EIA series type: `D` (actual demand) or `DF` (day-ahead demand forecast) |
+| `location` | entity | one weather point that represents a region (New York for NYIS, Houston for ERCO, Los Angeles for CISO) |
+| `demand` | event | one region's value for one series type in one UTC hour |
+| `weather` | event | the weather at one location in one UTC hour |
+| `quarantine` | quarantine | one raw record we could not load yet, with the reason, its source file and the raw record itself |
+
+Entities have an integer surrogate key (`INTEGER PRIMARY KEY`) and keep the source's identifier as
+`NOT NULL UNIQUE` (`respondent`, `type_code`, `location_code`). Event tables are keyed on what identifies one
+event: `(region_key, type_key, period_utc)` and `(location_key, observed_at)`, all `NOT NULL`.
+
+## How to build the database
+
+From a fresh clone with landed raw data in `data/raw/` (steps 1–5 of *How to run it*):
+
+```bash
+python src/load.py      # builds data/grid.db from data/raw/ in one transaction
+python src/load.py      # run it again: every table shows "+0" / "0 new" (idempotent)
+python src/checks.py    # six checks on a temporary copy; expect "6/6 checks passed"
+```
+
+`load.py` never calls an API: it only reads `data/raw/`, so the database can be rebuilt at any time. Deleting
+`data/grid.db` and running `load.py` again rebuilds it from scratch. The run summary ends with
+`foreign_key_check: OK` and `STATUS: COMPLETE`; if any file cannot be read, the whole run is rolled back and it
+prints `STATUS: FAILED`.
+
+In the summary, `quarantined: N records this run` counts records that this run routed to quarantine; the number in
+brackets is the size of the `quarantine` table. A record that is already quarantined is not added twice, so
+re-running the load does not make the table grow.
+
+To run the analytical query without the `sqlite3` command-line tool (e.g. on Windows):
+
+```bash
+python -c "import sqlite3; c=sqlite3.connect('data/grid.db'); q=open('sql/queries/demand_by_temperature.sql',encoding='utf-8').read(); cur=c.execute(q); print(*[d[0] for d in cur.description], sep=' | '); [print(*r, sep=' | ') for r in cur]"
+```
 
 ## Decisions (M2)
 
