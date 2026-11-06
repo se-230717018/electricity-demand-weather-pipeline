@@ -1,0 +1,3 @@
+type_code,role,unit,decided_by,decided_at,note
+D,actual,MWh,Tuba Arpacay,2026-11-06,"EIA hourly demand (type-name: Demand): the load actually served in the region in that UTC hour. EIA reports value-units as megawatthours."
+DF,forecast,MWh,Tuba Arpacay,2026-11-06,"EIA day-ahead demand forecast (type-name: Day-ahead demand forecast) for the same region and UTC hour. Used as the benchmark our model must beat; never treated as an actual value."
