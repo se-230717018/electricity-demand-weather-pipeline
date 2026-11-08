@@ -2,8 +2,3 @@ location_code,respondent,city,decided_by,decided_at,note
 NYIS,NYIS,New York,Irem Cakmak,2026-11-05,"Single representative city for the New York ISO. Requested 40.71,-74.01; Open-Meteo returned grid cell 40.738,-74.043."
 ERCO,ERCO,Houston,Irem Cakmak,2026-11-05,"Single representative city for ERCOT (Texas). Requested 29.76,-95.37; Open-Meteo returned grid cell 29.772,-95.331. Texas spans several climates, so this is an approximation."
 CISO,CISO,Los Angeles,Irem Cakmak,2026-11-05,"Single representative city for CAISO (California). Requested 34.05,-118.24; Open-Meteo returned grid cell 34.060,-118.238. Coastal city; inland California is hotter, so this is an approximation."
-
-location_code,respondent,city,decided_by,decided_at,note
-NYIS,NYIS,New York,Irem Cakmak,2026-11-05,"Single representative city for the New York ISO. Requested 40.71,-74.01; Open-Meteo returned grid cell 40.738,-74.043."
-ERCO,ERCO,Houston,Irem Cakmak,2026-11-05,"Single representative city for ERCOT (Texas). Requested 29.76,-95.37; Open-Meteo returned grid cell 29.772,-95.331. Texas spans several climates, so this is an approximation."
-CISO,CISO,Los Angeles,Irem Cakmak,2026-11-05,"Single representative city for CAISO (California). Requested 34.05,-118.24; Open-Meteo returned grid cell 34.060,-118.238. Coastal city; inland California is hotter, so this is an approximation."
