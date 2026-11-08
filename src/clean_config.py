@@ -30,3 +30,11 @@ WARN_NULL_SHARE = 0.01    # validate.py: WARN when > 1 % of a region's cleaned d
 # WEATHER (İrem) - src/clean_weather.py
 # ---------------------------------------------------------------------------
 # Add constants for weather_clean below this line, each with a comment.
+
+
+TEMP_MIN_C, TEMP_MAX_C = -60.0, 60.0          # outside -> invalid_out_of_range (NULL); profile: observed -18.3 .. 45.7 C, 0 outside
+HUMIDITY_MIN_PCT, HUMIDITY_MAX_PCT = 0.0, 100.0  # relative humidity is a percentage by definition; profile: observed 3 .. 100, 0 outside
+PRECIP_MIN_MM = 0.0                           # negative precipitation is impossible; profile: min 0.0, 0 below
+WEATHER_STUCK_RUN_HOURS = 24                  # same value >= 24 consecutive hours -> stuck_value (NULL); profile: longest natural run 7 h (temperature, night) and 18 h (humidity at 100 % saturation)
+TEMP_SPIKE_C_PER_HOUR = 12.0                  # |change| > 12 C in one hour -> spike (NULL); profile: p99 3.0-3.8 C, max 10.2 C (ERCO thunderstorm, 2 Aug 2022)
+WEATHER_ROBUST_Z_UNUSUAL = 3.5                # |robust z| > 3.5 per location x variable -> unusual_high / unusual_low (value kept); not applied to precipitation (MAD = 0)
