@@ -107,10 +107,33 @@ files named with a UTC timestamp, so earlier raw files are never overwritten.
 **Why raw data is not in the repository:** `data/raw/` is git-ignored. Raw files grow with every run,
 and EIA data can only be retrieved with a personal API key. Anyone with their own key can regenerate the
 data by following the steps above.
+## Data Quality (M3)
+
+Profiling found the main problems in demand rather than weather: 336 day-ahead forecast hours that never
+arrived and 184 whole-day zero forecasts in NYIS (all missing forecast hours fall in 2024–2026), zero or
+near-zero actual demand in NYIS and CISO, 22 unreported CISO hours, and actual-demand gaps on the nights
+clocks go back. Weather has no missing or impossible values; its extreme temperatures are real events and are
+flagged, not removed. The cleaned layer keeps every raw row with its raw value, a cleaned value (NULL where it
+is not trusted, never imputed) and a flag explaining the difference. Full findings, decisions and limitations:
+**[docs/cleaning_report.md](docs/cleaning_report.md)** · profile: [notebooks/m3_profile.ipynb](notebooks/m3_profile.ipynb).
+
+### How to build and check everything
+
+From a fresh clone with landed raw data in `data/raw/` (steps 1–5 of *How to run it*):
+
+```bash
+python src/load.py               # raw files -> M2 tables (data/grid.db)
+python src/clean.py              # M2 tables -> cleaned layer (demand_clean, weather_clean, mapping tables)
+python src/validate.py           # data-quality checks: PASS / WARN / STOP (exit 1 on any STOP)
+python src/validate_selftest.py  # optional: makes every STOP check fail once on a temporary copy
+```
+
+`clean.py` only reads the M2 tables; it hashes them before and after and rolls back if anything changed.
+Thresholds live in `src/clean_config.py`; name, category and identity decisions live in `data/mappings/*.csv`.
 
 ## Status
 
-M2 — schema and load complete
+M3 — cleaned layer and quality report complete
 
 ## Team
 
