@@ -131,9 +131,27 @@ python src/validate_selftest.py  # optional: makes every STOP check fail once on
 `clean.py` only reads the M2 tables; it hashes them before and after and rolls back if anything changed.
 Thresholds live in `src/clean_config.py`; name, category and identity decisions live in `data/mappings/*.csv`.
 
+## Exploration (M4)
+
+![Demand vs temperature](figures/fig4_temperature_vs_demand.png)
+
+EIA's own day-ahead forecast misses hourly demand by 2.66 % (NYIS), 2.43 % (ERCO) and 5.13 % (CISO) on
+average (MAPE, cleaned hours); this is the number our M7 model has to beat. Demand is U-shaped in temperature
+in NYIS and ERCO (heating and cooling) and rises only with heat in CISO, so a single linear temperature term
+would hide the effect. On the hottest summer days EIA's forecast gets worse in NYIS but better in ERCO.
+Full analysis, findings and limits: **[docs/eda_report.md](docs/eda_report.md)** · notebook:
+[notebooks/m4_eda.ipynb](notebooks/m4_eda.ipynb) · figures: [figures/](figures/).
+
+The notebook only reads the database (read-only connection) and checks at the end that every table is unchanged.
+After building the database (*How to build and check everything* above):
+
+```bash
+jupyter nbconvert --to notebook --execute --inplace notebooks/m4_eda.ipynb
+```
+
 ## Status
 
-M3 — cleaned layer and quality report complete
+M4 — exploratory analysis complete
 
 ## Team
 
