@@ -138,10 +138,69 @@ would bias any temperature analysis.
 
 _(İrem — the clock and why; edges; patterns at two time scales; calendar / holidays.)_
 
+*Explored by İrem Çakmak (notebook section 2.5).* The question is about human behaviour, so hours are converted from UTC to each region's local time (`America/New_York`, `America/Chicago`, `America/Los_Angeles`) with `tz_convert`, which handles daylight saving time.
+
+**Peak hour depends on the clock and on the flag filter** (median demand per hour, series D):
+
+| Region | Filter | n (h) | Peak hour, UTC | Peak hour, local | Lowest hour, local |
+|---|---|---|---|---|---|
+| NYIS | `ok` | 67,167 | 00 | 19 | 04 |
+| NYIS | `ok` + unusual | 67,906 | 23 | 19 | 04 |
+| ERCO | `ok` | 67,674 | 23 | 18 | 04 |
+| ERCO | `ok` + unusual | 67,919 | 23 | 17 | 04 |
+| CISO | `ok` | 66,218 | 03 | 20 | 05 |
+| CISO | `ok` + unusual | 67,893 | 03 | 19 | 05 |
+
+Grouped by UTC hour, demand would seem to peak around midnight; in local time it peaks in the early evening. Excluding the `unusual_high` hours moves the peak one hour later in ERCO and CISO, because those hours are the summer afternoon peaks.
+
+**Edges.** Because the period starts and ends at UTC midnight, the first and last local days are partial (NYIS 5 h and 20 h, ERCO 6 h and 19 h, CISO 8 h and 17 h). DST produces 23- and 25-hour local days; their counts do not match the number of transitions, which reveals a few hours missing from the source (see *Back to cleaning*).
+
+**Two time scales.** ![Hour by month](../figures/fig3_hour_by_month_local.png) All regions peak on summer afternoons and evenings. NYIS also has a smaller winter-evening peak (heating). CISO's spring middays (Mar–May, 10:00–15:00) fall almost to night-time levels, which we infer is rooftop solar reducing grid demand (not confirmed).
+
+**Calendar.** Daily mean demand on a holiday vs the median of the same weekday in the same month and year (days with ≥ 20 hours):
+
+| Region | Independence Day | Thanksgiving | Christmas |
+|---|---|---|---|
+| NYIS | −10.2 % (−22.5…+21.4, n = 8) | −6.5 % (−9.6…−1.9, n = 7) | −7.9 % (−13.7…+8.8, n = 7) |
+| ERCO | −7.6 % (−11.5…+15.3, n = 8) | −3.5 % (−13.1…−2.1, n = 7) | −5.9 % (−21.5…+27.8, n = 7) |
+| CISO | −12.8 % (−23.7…−7.3, n = 8) | −7.7 % (−12.6…−3.2, n = 7) | −11.8 % (−15.2…−3.3, n = 7) |
+
+Holidays lower demand everywhere, but weather can override them. The positive outliers are ERCO Christmas 2022 (+27.8 %) and NYIS Christmas 2022 (+8.8 %), during Winter Storm Elliott; NYIS 4 July 2026 (+21.4 %), during the heat wave that brought NYIS's highest temperature in our data (40.7 °C on 2 July 2026); and ERCO 4 July 2024 (+15.3 %), which we infer is a low baseline: the comparison Thursdays followed Hurricane Beryl's outages in Houston (from 8 July 2024). Each comparison uses only 3–4 days, so single values are fragile.
+
 ## 6. Relationships
 
 _(İrem — binned medians / scatter first; Pearson and Spearman and which describes the picture better; what drives it;
 what is left when it is removed; within-period comparison.)_
+
+*Explored by İrem Çakmak (notebook section 2.6).* Question: how does hourly demand (series D) depend on the temperature of each region's representative city? Filters: `value_mwh_flag` and `temperature_c_flag` in `('ok', 'unusual_high', 'unusual_low')`; demand and weather joined on region and UTC hour through `map_region_location`.
+
+**Shape first.** ![Temperature vs demand](../figures/fig4_temperature_vs_demand.png) Median demand per 2 °C bin (bins with fewer than 50 hours omitted). NYIS and ERCO are clearly U-shaped: demand is lowest at about 15 °C (NYIS, 88 % of its median) and 17–18 °C (ERCO, 85 %), rises to 160 % (NYIS) and 175 % (ERCO) in the heat and to 120 % and 145 % in the cold. CISO's cold side is flat (mild winters, little heating) and demand rises only above ≈ 15 °C, to about 155 % at 39 °C.
+
+**Then coefficients.** Because the relationship is not monotonic, we split at 18 °C (the usual comfort temperature):
+
+| Region | n (h) | Pearson, all | Spearman, all | Spearman ≥ 18 °C | Spearman < 18 °C |
+|---|---|---|---|---|---|
+| NYIS | 67,906 | 0.30 | 0.23 | 0.71 | −0.49 |
+| ERCO | 67,919 | 0.54 | 0.64 | 0.80 | −0.43 |
+| CISO | 67,893 | 0.54 | 0.49 | 0.34 | 0.20 |
+
+One coefficient per region is misleading: NYIS's 0.23 hides a strong cooling effect and a strong heating effect that cancel out.
+
+**Driver check.** Is the relationship carried by a few events, or confounded by time of day?
+
+| Region | Check | Spearman ≥ 18 °C (n) | Spearman < 18 °C (n) |
+|---|---|---|---|
+| NYIS | baseline | 0.71 (24,388) | −0.49 (43,518) |
+| NYIS | without unusual temperature hours | 0.71 (24,388) | −0.49 (43,518) |
+| NYIS | only 17:00 local | 0.78 (1,302) | −0.81 (1,527) |
+| ERCO | baseline | 0.80 (48,926) | −0.43 (18,993) |
+| ERCO | without unusual temperature hours | 0.80 (48,926) | −0.41 (18,714) |
+| ERCO | without Uri (10–20 Feb 2021) | 0.80 (48,919) | −0.42 (18,736) |
+| ERCO | only 17:00 local | 0.88 (2,315) | −0.43 (515) |
+| CISO | baseline | 0.34 (31,285) | 0.20 (36,608) |
+| CISO | only 17:00 local | 0.77 (1,997) | −0.15 (832) |
+
+Removing extreme temperature hours or the Uri week barely moves the coefficients, so no single event drives them (the plan expected Uri might dominate ERCO; it does not). Fixing the hour, however, makes them clearly stronger, and CISO's cold-side sign flips: cold hours are mostly night hours, when demand is low anyway. Time of day is a confounder, and any model should include it together with temperature. We did not repeat the check within single months; that and all 24 hours remain to be done (§9).
 
 ## 7. The comparison
 
@@ -195,16 +254,31 @@ Every member adds at least two rows. Label: *exploratory* (seen in this data, no
 | F-01 | The summary decides the NYIS–ERCO order: ERCO has the lowest MAPE (2.43 %) and median APE (1.78 %), NYIS the lowest P95 (5.88 % vs 6.75 %); CISO is last under all three. | Notebook 2.2; §3 table | confirmed | A different period (e.g. 2024–2026 only) or flag filter could reorder NYIS and ERCO; CISO's last place is robust. | Tuba |
 | F-02 | Forecast-error shape differs by region: NYIS has a small systematic under-forecast, ERCO rare large over-forecasts (kurtosis 32), CISO a long under-forecast tail (0.82 % of hours beyond ±30 %). | `f1_df_error_distribution.png`; notebook 2.3 | exploratory | Splitting by year: a change in EIA's forecasting method could remove the NYIS bias or the CISO tail. | Tuba |
 | F-03 | On the hottest 10 % of summer days, DF error is higher in NYIS (+0.37 pts, 95 % CI +0.11 to +0.65) and lower in ERCO (−0.40 pts, −0.59 to −0.20); CISO shows no clear effect. | `f5_hot_day_comparison.png`; notebook 2.7 | exploratory | A block bootstrap by week (heat-wave days are not independent), another hot-day threshold, or held-out years. | Tuba |
+| F-04 | The daily peak is at 17:00–20:00 local time in all three regions; grouped by UTC hour it appears at 23:00–03:00, a 5–7 hour shift. | Notebook 2.5 peak-hour table; `fig3_hour_by_month_local.png` | confirmed | Nothing in the data; it follows from the time-zone offset (DST handled by `tz_convert`). | İrem |
+| F-05 | The `ok`-only filter moves the peak one hour later in CISO (19:00 → 20:00) and ERCO (17:00 → 18:00), because it drops the `unusual_high` hours, which are the summer peaks. | Notebook 2.5 peak-hour table, both filters | exploratory | A seasonal split: the shift should appear only in summer months. | İrem |
+| F-06 | CISO's spring middays (Mar–May, 10:00–15:00 local) drop almost to night-time demand. Inferred cause: behind-the-meter rooftop solar reduces grid demand. | `fig3_hour_by_month_local.png` | exploratory | Solar generation data for CAISO; the dip should grow year by year as solar capacity grows. | İrem |
+| F-07 | Holidays lower demand (median −3.5 % to −12.8 % vs the same weekday in the same month), but weather can reverse it: ERCO Christmas 2022 +27.8 % (Winter Storm Elliott), NYIS 4 July 2026 +21.4 % (heat wave). | Notebook 2.5 holiday tables | exploratory | Only 7–8 holidays per type and 3–4 comparison days each; a weather-adjusted baseline could change the sizes. | İrem |
+| F-08 | Demand is U-shaped in temperature, so one correlation hides it: NYIS Spearman 0.23 overall, but +0.71 above 18 °C and −0.49 below. Removing unusual temperature hours or the Uri week changes the coefficients by at most 0.02. | `fig4_temperature_vs_demand.png`; notebook 2.6 tables | confirmed | Weather from more cities per region; the U should stay, its minimum may move. | İrem |
+| F-09 | Time of day masks the temperature effect: at a fixed hour (17:00) the warm-side Spearman rises to 0.77–0.88 and NYIS's cold side to −0.81; CISO's cold-side sign flips from +0.20 to −0.15 (cold hours are mostly night hours). | Notebook 2.6 driver-check table | exploratory | Repeating for all 24 hours and within single months; n at 17:00 is small (CISO cold side 832 h). | İrem |
 
 ### Back to cleaning
 
 _(Anything exploration showed the cleaned layer got wrong or missed — also added to `docs/cleaning_report.md` and fixed in
 `src/clean.py`. "None found" is fine if true.)_
 
+- **Hours absent from the source around DST changes** (İrem): counting rows per *local* day, NYIS and ERCO each have only 6 autumn-transition days with 25 hours (7 expected for 2019–2025) and CISO has 10 instead of 8 days with 23 hours. These hours are not NULL values but missing rows, so M3's missing-value counts do not see them; a coverage check on expected hours per local day would.
+- **Edge days pass the daily rule** (İrem): the first and last local days are partial because the period starts and ends at UTC midnight (NYIS 5 h and 20 h, ERCO 6 h and 19 h, CISO 8 h and 17 h). `DAILY_MIN_HOURS = 20` still admits NYIS's last day (30 Sep 2026, 20 h); edge days should be excluded explicitly.
+- **Representative weather point for CISO** (İrem): the weak cold-side and modest warm-side response in CISO is consistent with M3's I-W05/I-W06 note that coastal Los Angeles is an approximation for all of California.
+
 ### Forward to modelling
 
 _(Questions M7 should answer; what M7 must be careful about: thin periods, leakage, seasonality, variables that only exist
 after the outcome.)_
+
+- **Time features in local time** (İrem): local hour, weekday, month and a holiday indicator, computed with `tz_convert`; grouping by UTC hour shifts the daily peak by 5–7 hours (§5).
+- **Temperature as two effects, not one** (İrem): demand falls with temperature below ≈ 15–18 °C and rises above it (§6), so a single linear temperature term would cancel out. Use heating and cooling degrees (or a piecewise term) per region, with an hour × temperature interaction: at a fixed hour the relationship is much stronger (§6, driver check).
+- **Extreme events as stress tests** (İrem): Winter Storm Uri (Feb 2021), Winter Storm Elliott (Dec 2022), Hurricane Beryl (Jul 2024) and the NYIS heat wave of early July 2026 should be kept and reported separately in evaluation, not averaged away.
+- **CISO weather input** (İrem): one coastal city captures heat response only partly; an inland city or a solar proxy may help CISO more than any model choice.
 
 ## 9. What we can't say
 
