@@ -90,7 +90,8 @@ files named with a UTC timestamp, so earlier raw files are never overwritten.
 ├── sql/
 │   ├── schema.sql       ← every table, STRICT, safe to run more than once
 │   └── queries/
-│       └── demand_by_temperature.sql  ← analytical query
+│       ├── demand_by_temperature.sql        ← analytical query (M2, raw tables)
+│       └── demand_by_temperature_clean.sql  ← same query on the cleaned layer (M3)
 ├── src/
 │   ├── ingest.py        ← M1: API → data/raw/ (retries, timeouts, pagination, run summary)
 │   ├── db.py            ← connect() (foreign keys ON) and shared conversion helpers
@@ -405,3 +406,24 @@ Output (full load, 2026-10-10 run):
 **Reading it:** ERCO and NYIS show a U shape: demand is lowest around 10–20 °C and rises in both cold (heating) and hot (cooling) hours. CISO rises steadily with temperature; it has few cold hours, so cooling dominates. Bands with very few hours (e.g. CISO 45–50 °C, 1 hour) should not be over-interpreted.
 
 **Known issue (EIA):** some hours report demand of 0 or near 0 MWh (NYIS min 0, CISO min 14 and 91). These are numeric values, so they are loaded as reported, not turned into NULL; they look like reporting errors and pull a band's minimum down, while the averages, built on thousands of hours, are barely affected.
+
+**After cleaning (M3):** `sql/queries/demand_by_temperature_clean.sql` asks the same question on
+`demand_clean` and `weather_clean`, keeping only trusted values (flags `ok`, `unusual_high`, `unusual_low`):
+
+```bash
+sqlite3 -header -column data/grid.db < sql/queries/demand_by_temperature_clean.sql
+```
+
+Only six bands change; every other row is identical to the table above. The cleaning step removes 15 hours
+(the 0 and near-0 MWh readings), every band minimum becomes plausible, and no average moves by more than 0.5 %:
+
+| respondent | band (°C) | hours (raw → clean) | avg demand (MWh, raw → clean) | min (MWh, raw → clean) |
+|---|---|---|---|---|
+| CISO | 10–15 | 17,082 → 17,080 | 22,939 → 22,942 | 91 → 12,197 |
+| CISO | 15–20 | 21,593 → 21,592 | 24,531 → 24,532 | 14 → 12,789 |
+| NYIS | -10 – -5 | 1,448 → 1,442 | 18,915 → 18,994 | 0 → 14,923 |
+| NYIS | -5–0 | 5,780 → 5,777 | 17,916 → 17,925 | 0 → 13,242 |
+| NYIS | 5–10 | 10,185 → 10,184 | 15,851 → 15,853 | 0 → 11,699 |
+| NYIS | 15–20 | 10,457 → 10,455 | 15,472 → 15,475 | 0 → 10,856 |
+
+This confirms the known issue above: the bad readings distorted band minimums, not the U-shaped pattern.
