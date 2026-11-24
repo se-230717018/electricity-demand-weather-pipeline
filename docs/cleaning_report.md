@@ -259,6 +259,10 @@ database is never touched. Output of the final run: **7/7 STOP checks failed whe
 
 **Demand (Tuba):**
 - Thresholds are whole-series, not seasonal. CISO D 2025-07-31 21:00 UTC (11,819 MWh) is far too low for a July afternoon but stays `ok`: 48 % of the median, robust z ≈ −3.2. Only its DF row is flagged (`forecast_mismatch`).
+- For the same reason `unusual_high` marks summer peaks, not anomalies: 5,593 of the 5,667 flagged hours (98.7 %)
+  fall in June–September (UTC month; CISO 3,524 / 3,596, ERCO 453 / 454, NYIS 1,616 / 1,617), and no hour is
+  `unusual_low`. The values are kept, so no result changes, but the flag means "high for the year", not
+  "suspicious". A median and MAD per region × month × hour would separate real anomalies from ordinary peaks.
 - The causes of the CISO NULLs, the missing DF days and the NYIS DF zero days are inferred from their patterns; EIA does not document them.
 - In early 2019 CISO D is often far below DF (DF/D up to ~1.9). Actuals may be under-reported then; nothing is flagged.
 - A model-vs-EIA comparison (M7) is only fair on hours where both D and DF are trusted.
