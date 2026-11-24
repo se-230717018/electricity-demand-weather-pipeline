@@ -100,6 +100,8 @@ files named with a UTC timestamp, so earlier raw files are never overwritten.
 │   ├── checks.py        ← six PASS/FAIL checks on a temporary copy of the database
 │   ├── key_tests_eia.py      ← key tests on raw EIA files
 │   └── key_tests_weather.py  ← key tests on raw Open-Meteo files
+├── tests/
+│   └── test_clean_demand.py  ← unit tests: one per demand flag rule, on an in-memory database
 └── docs/
     └── sources.md       ← data source cards
 ```
@@ -126,6 +128,7 @@ python src/load.py               # raw files -> M2 tables (data/grid.db)
 python src/clean.py              # M2 tables -> cleaned layer (demand_clean, weather_clean, mapping tables)
 python src/validate.py           # data-quality checks: PASS / WARN / STOP (exit 1 on any STOP)
 python src/validate_selftest.py  # optional: makes every STOP check fail once on a temporary copy
+python -m unittest discover tests -v  # unit tests for the demand flag rules (no data or grid.db needed)
 ```
 
 `clean.py` only reads the M2 tables; it hashes them before and after and rolls back if anything changed.
