@@ -19,7 +19,7 @@ ON CONFLICT (location_code) DO UPDATE SET
     elevation_m  = excluded.elevation_m,
     retrieved_at = excluded.retrieved_at,
     source_file  = excluded.source_file
-WHERE excluded.retrieved_at >= location.retrieved_at
+WHERE excluded.retrieved_at > location.retrieved_at
 """
 
 UPSERT_WEATHER = """
@@ -32,7 +32,7 @@ ON CONFLICT (location_key, observed_at) DO UPDATE SET
     precipitation_mm      = excluded.precipitation_mm,
     retrieved_at          = excluded.retrieved_at,
     source_file           = excluded.source_file
-WHERE excluded.retrieved_at >= weather.retrieved_at
+WHERE excluded.retrieved_at > weather.retrieved_at
 """
 
 INSERT_QUARANTINE = """
