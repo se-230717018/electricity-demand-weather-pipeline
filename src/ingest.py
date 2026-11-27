@@ -3,10 +3,12 @@
 Run from the repository root:  python src/ingest.py
 """
 
+import argparse
+import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -95,14 +97,54 @@ def parse_locations(raw: str) -> list[tuple[str, str, str]]:
     return locations
 
 
-def fetch_open_meteo(run_ts: str) -> dict:
-    """One request per representative location; each response is saved unmodified."""
-    start = get_env("START_DATE")
-    end = get_env("END_DATE")
+OPEN_METEO_OVERLAP_DAYS = 10        # re-fetch the last 10 days every run; values older than 8 days never changed between our Oct 8 and Oct 24 retrievals, and ERA5 lags ~6 days (docs/pipeline.md)
+OPEN_METEO_MAX_CATCHUP_DAYS = 3650  # at most ~10 years per run; a longer outage is caught up over several runs
+
+
+def parse_run_time(text: str | None) -> datetime:
+    """'2026-11-20T08:10Z' -> UTC datetime; None -> now."""
+    if text is None:
+        return datetime.now(timezone.utc)
+    return datetime.strptime(text, "%Y-%m-%dT%H:%MZ").replace(tzinfo=timezone.utc)
+
+
+def last_open_meteo_hour(code: str) -> datetime | None:
+    """Latest hour with a value in the newest landed file for this location; None if nothing landed yet."""
+    files = sorted((RAW_DIR / "open_meteo").glob(f"*_{code}.json"))  # names start with the UTC timestamp
+    if not files:
+        return None
+    hourly = json.loads(files[-1].read_text(encoding="utf-8")).get("hourly", {})
+    times = [t for t, v in zip(hourly.get("time", []), hourly.get("temperature_2m", [])) if v is not None]
+    if not times:
+        return None
+    return datetime.strptime(max(times), "%Y-%m-%dT%H:%M").replace(tzinfo=timezone.utc)
+
+
+def open_meteo_window(code: str, run_time: datetime) -> tuple[str, str]:
+    """Dates to request: from the last landed hour minus the overlap, up to the day before the run time.
+
+    The day of the run time is never requested: the archive fills it with forecast values,
+    including hours after the run time, and raw responses are saved unmodified.
+    """
+    end = (run_time - timedelta(days=1)).date()
+    last = last_open_meteo_hour(code)
+    if last is None:
+        start = datetime.strptime(get_env("START_DATE"), "%Y-%m-%d").date()
+    else:
+        start = (last - timedelta(days=OPEN_METEO_OVERLAP_DAYS)).date()
+    start = min(start, end)
+    if (end - start).days > OPEN_METEO_MAX_CATCHUP_DAYS:
+        end = start + timedelta(days=OPEN_METEO_MAX_CATCHUP_DAYS)
+    return start.isoformat(), end.isoformat()
+
+
+def fetch_open_meteo(run_ts: str, run_time: datetime) -> dict:
+    """One request per representative location for its own window; each response is saved unmodified."""
     hourly = get_env("OPENMETEO_HOURLY")
     files, records, failures = 0, 0, []
 
     for code, lat, lon in parse_locations(get_env("OPENMETEO_LOCATIONS")):
+        start, end = open_meteo_window(code, run_time)
         params = {
             "latitude": lat,
             "longitude": lon,
@@ -111,6 +153,7 @@ def fetch_open_meteo(run_ts: str) -> dict:
             "hourly": hourly,
             "timezone": "GMT",  # UTC, so hours line up with EIA
         }
+        print(f"  Open-Meteo {code}: requesting {start} .. {end}")
         try:
             response = http_get(OPEN_METEO_URL, params)
             body = response.json()  # also checks that we really received JSON
@@ -128,7 +171,6 @@ def fetch_open_meteo(run_ts: str) -> dict:
         print(f"  Open-Meteo {code}: {len(times)} hourly records -> {path.relative_to(RAW_DIR.parent.parent)}")
 
     return {"source": "Open-Meteo", "files": files, "records": records, "failures": failures}
-
 
 EIA_URL = "https://api.eia.gov/v2/electricity/rto/region-data/data/"
 EIA_PAGE_SIZE = 5000  # EIA's maximum rows per request
@@ -185,10 +227,14 @@ def fetch_eia(run_ts: str) -> dict:
 
 
 def main() -> None:
-    run_ts = utc_timestamp()
-    print(f"Ingestion run started at {run_ts}")
-    results = [fetch_eia(run_ts), fetch_open_meteo(run_ts)]
+    parser = argparse.ArgumentParser(description="Land raw EIA and Open-Meteo data in data/raw/.")
+    parser.add_argument("--run-time", help="pipeline clock, e.g. 2026-11-20T08:10Z (default: now, UTC)")
+    args = parser.parse_args()
+    run_time = parse_run_time(args.run_time)
 
+    run_ts = utc_timestamp()  # wall clock: the real retrieval time, used in file names and retrieved_at
+    print(f"Ingestion run started at {run_ts} (run time {run_time:%Y-%m-%dT%H:%MZ})")
+    results = [fetch_eia(run_ts), fetch_open_meteo(run_ts, run_time)]
     print("\nRun summary")
     for r in results:
         status = "OK" if not r["failures"] else f"{len(r['failures'])} FAILED"
