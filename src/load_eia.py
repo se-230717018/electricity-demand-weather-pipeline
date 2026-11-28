@@ -8,7 +8,9 @@ Contract (M2 plan, section 4):
 - A value that is not a number becomes NULL and is counted (values_cleaned).
 - A record with a missing or unparseable key goes to quarantine.
 - Values reach SQL only through ? placeholders.
-- Upserts: the row with the newest retrieved_at wins.
+- Upserts: the row with the newest retrieved_at wins. On a tie the existing
+  row is kept, so re-loading the same file (or the overlap hours that
+  ingest.py re-fetches) changes nothing unless the data is newer.
 """
 import json
 from pathlib import Path
@@ -24,7 +26,7 @@ ON CONFLICT (respondent) DO UPDATE SET
     respondent_name = excluded.respondent_name,
     retrieved_at    = excluded.retrieved_at,
     source_file     = excluded.source_file
-WHERE excluded.retrieved_at >= region.retrieved_at
+WHERE excluded.retrieved_at > region.retrieved_at
 """
 
 UPSERT_TYPE = """
@@ -34,7 +36,7 @@ ON CONFLICT (type_code) DO UPDATE SET
     type_name    = excluded.type_name,
     retrieved_at = excluded.retrieved_at,
     source_file  = excluded.source_file
-WHERE excluded.retrieved_at >= series_type.retrieved_at
+WHERE excluded.retrieved_at > series_type.retrieved_at
 """
 
 UPSERT_DEMAND = """
@@ -44,7 +46,7 @@ ON CONFLICT (region_key, type_key, period_utc) DO UPDATE SET
     value_mwh    = excluded.value_mwh,
     retrieved_at = excluded.retrieved_at,
     source_file  = excluded.source_file
-WHERE excluded.retrieved_at >= demand.retrieved_at
+WHERE excluded.retrieved_at > demand.retrieved_at
 """
 
 INSERT_QUARANTINE = """

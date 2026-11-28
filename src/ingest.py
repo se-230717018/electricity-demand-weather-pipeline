@@ -172,19 +172,54 @@ def fetch_open_meteo(run_ts: str, run_time: datetime) -> dict:
 
     return {"source": "Open-Meteo", "files": files, "records": records, "failures": failures}
 
+
 EIA_URL = "https://api.eia.gov/v2/electricity/rto/region-data/data/"
 EIA_PAGE_SIZE = 5000  # EIA's maximum rows per request
+EIA_PERIOD_FMT = "%Y-%m-%dT%H"  # EIA hourly period, UTC, e.g. 2026-11-20T08
+EIA_OVERLAP_HOURS = 48  # re-fetch the last 48 hours every run, so late-published hours are picked up
 
 
-def fetch_eia(run_ts: str) -> dict:
-    """All pages of hourly demand (D) and day-ahead forecast (DF), one region at a time."""
+def last_eia_hour(resp: str) -> datetime | None:
+    """Latest hour with a demand (D) value in the newest landed run for this region; None if nothing landed yet."""
+    files = sorted((RAW_DIR / "eia").glob(f"*_{resp}_page*.json"))  # names start with the UTC timestamp
+    if not files:
+        return None
+    newest_run = files[-1].name.split("_")[0]
+    periods = []
+    for path in files:
+        if not path.name.startswith(newest_run + "_"):
+            continue
+        rows = json.loads(path.read_text(encoding="utf-8")).get("response", {}).get("data") or []
+        periods += [r["period"] for r in rows if r.get("type") == "D" and r.get("value") is not None]
+    if not periods:
+        return None
+    return datetime.strptime(max(periods), EIA_PERIOD_FMT).replace(tzinfo=timezone.utc)
+
+
+def eia_window(resp: str, run_time: datetime) -> tuple[str, str, bool]:
+    """Hours to request: from the last landed hour minus the overlap, up to the hour of the run time.
+
+    Returns (start, end, incremental); incremental is False on the first run (full history from START_DATE).
+    """
+    end = run_time.replace(minute=0, second=0, microsecond=0)
+    last = last_eia_hour(resp)
+    if last is None:
+        start = datetime.strptime(get_env("START_DATE"), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    else:
+        start = last - timedelta(hours=EIA_OVERLAP_HOURS)
+    start = min(start, end)
+    return start.strftime(EIA_PERIOD_FMT), end.strftime(EIA_PERIOD_FMT), last is not None
+
+
+def fetch_eia(run_ts: str, run_time: datetime) -> dict:
+    """All pages of hourly demand (D) and day-ahead forecast (DF), one region at a time, each for its own window."""
     api_key = get_env("EIA_API_KEY")
-    start = get_env("START_DATE") + "T00"
-    end = get_env("END_DATE") + "T23"
     respondents = [r.strip() for r in get_env("EIA_RESPONDENTS").split(",")]
     files, records, failures = 0, 0, []
 
     for resp in respondents:
+        start, end, incremental = eia_window(resp, run_time)
+        print(f"  EIA {resp}: requesting {start} .. {end}")
         offset, page, total = 0, 1, None
         try:
             while total is None or offset < total:
@@ -209,6 +244,8 @@ def fetch_eia(run_ts: str) -> dict:
                 if total is None:
                     total = int(body.get("response", {}).get("total", 0))
                     if total == 0:
+                        if incremental:  # nothing new published yet in this window; not an error
+                            break
                         raise FetchError("EIA reports 0 records for this query")
                 if not rows:
                     raise FetchError(f"empty page at offset {offset} (expected {total} records)")
@@ -234,7 +271,7 @@ def main() -> None:
 
     run_ts = utc_timestamp()  # wall clock: the real retrieval time, used in file names and retrieved_at
     print(f"Ingestion run started at {run_ts} (run time {run_time:%Y-%m-%dT%H:%MZ})")
-    results = [fetch_eia(run_ts), fetch_open_meteo(run_ts, run_time)]
+    results = [fetch_eia(run_ts, run_time), fetch_open_meteo(run_ts, run_time)]
     print("\nRun summary")
     for r in results:
         status = "OK" if not r["failures"] else f"{len(r['failures'])} FAILED"
